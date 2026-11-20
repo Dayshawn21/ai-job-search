@@ -79,7 +79,9 @@ Each agent returns a JSON array, one object per job:
   "strengths": ["1-3 bullets, grounded in the posting text"],
   "gaps": ["1-3 bullets, honest"],
   "language": "<posting language>",
-  "guard": "clean" | "<posting_guard verdict line, verbatim>"
+  "guard": "clean" | "<posting_guard verdict line, verbatim>",
+  "ghost_risk": "LOW" | "MODERATE" | "HIGH" | "UNKNOWN",
+  "ghost_note": "<one line, required for HIGH>"
 }
 ```
 
@@ -121,6 +123,8 @@ Back in the main context, for each scored job:
    stored `posted_date` is compared: a value that does not parse as `YYYY-MM-DD` is
    treated exactly like an absent one and reported once in the Step 5 summary with its
    portal.
+
+8. **Ghost-job risk:** each scoring agent also returns `"ghost_risk"` (`LOW`, `MODERATE`, `HIGH` or `UNKNOWN`) and a one-line `"ghost_note"`. The agent checks, from evidence it actually fetched: (a) is the posting still on the employer's own careers page or ATS (a Greenhouse, Lever or Ashby feed hit from `tools/ats_feeds.py` counts as live); (b) the employer's own posting date, not a board's "updated" stamp; (c) talent-pool, "general interest" or evergreen wording; (d) the same vacancy reposted repeatedly. Live on the employer's own site with a recent date is `LOW`; found only on aggregators, or older than 30 days, is `MODERATE`; gone from the employer's own page, evergreen wording, or repeated reposting is `HIGH` (the note says exactly why); no evidence either way is `UNKNOWN`. A `HIGH` job stays in the ranking with a visible 👻 marker and the note, never a veto, and a posting on an employer's own site proves it exists, not that anyone is interviewing. Never state a job has no hiring intent without explicit evidence. Show the label next to the score in Step 5.
 
 Sort by overall score (descending), urgency as tiebreaker.
 

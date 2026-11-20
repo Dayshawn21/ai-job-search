@@ -138,8 +138,14 @@ def parse_iso(value) -> date | None:
 
 
 def norm(text) -> str:
-    """Ignore case and separators without discarding non-Latin identity."""
+    """Ignore case and separators without discarding non-Latin identity.
+
+    "&" reads as "and", so "Goldschmitt & Associates" (tracker) matches
+    "Goldschmitt and Associates" (portal). Only a standalone "&" is rewritten:
+    one inside a token ("AT&T", "R&D") keeps its letters joined as before.
+    """
     text = unicodedata.normalize("NFC", str(text or "").casefold())
+    text = re.sub(r"(?<=\s)&(?=\s)", " and ", text)
     # Combining marks can distinguish names even after NFC (e.g. Indic vowels).
     return "".join(
         char for char in text
@@ -467,6 +473,21 @@ def cmd_apply(args) -> int:
         else:
             entry.pop("guard", None)
 
+        # Ghost-job risk from the scoring agent: LOW/MODERATE/HIGH/UNKNOWN plus a
+        # one-line reason. Additive and optional; a rescore without one drops a
+        # stale value, since last run's check says nothing about today's fetch.
+        ghost = result.get("ghost_risk")
+        if isinstance(ghost, str) and ghost.strip().upper() in ("LOW", "MODERATE", "HIGH", "UNKNOWN"):
+            entry["ghost_risk"] = ghost.strip().upper()
+            note = result.get("ghost_note")
+            if isinstance(note, str) and note.strip():
+                entry["ghost_note"] = note.strip()[:200]
+            else:
+                entry.pop("ghost_note", None)
+        else:
+            entry.pop("ghost_risk", None)
+            entry.pop("ghost_note", None)
+
         rows.append(
             {
                 "key": key,
@@ -485,6 +506,8 @@ def cmd_apply(args) -> int:
                 "strengths": entry.get("strengths", []),
                 "gaps": entry.get("gaps", []),
                 "guard": entry.get("guard"),
+                "ghost_risk": entry.get("ghost_risk"),
+                "ghost_note": entry.get("ghost_note"),
             }
         )
 

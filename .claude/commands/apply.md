@@ -379,6 +379,10 @@ List the files written:
 
 Tell the user: "Both files are ready for your review. Open them to check the final output before compiling."
 
+### Outreach Note (every application)
+
+A person who knows your name beats one more form, so every application also gets a short outreach draft for the user to send to a recruiter or a team member. Write 3-4 sentences, grounded only in the profile and the posting: who he is, one specific fact that matches this role (a real number or project), the honest gap if it is the headline requirement, and a low-pressure ask (a brief chat, or whether the role is still open). Pair it with the Step 4.5 LinkedIn people-search links (recruiter and team peer). Never fabricate a named contact, never claim a person was found, and never send it: he reviews, sends, and logs "contacted" in the tracker. Save it as `documents/applications/<company>_<role>/outreach.txt` and show it in the final output. For a dream target, suggest one small build-before-hire gesture, such as a short demo of a relevant feature from one of your own projects.
+
 ### Step 6b: Record the Application
 
 Do this before the optional offer below, and before ending the turn for any other reason.

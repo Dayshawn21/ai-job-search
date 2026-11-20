@@ -108,6 +108,23 @@ class Candidates(RankStateCase):
         self.assertEqual([row["key"] for row in out["selected"]], ["b"])
         self.assertEqual(out["excluded_by_tracker"], 1)
 
+    def test_tracker_ampersand_matches_and_but_not_inside_a_token(self):
+        self.write_state({
+            "a": entry(company="Goldschmitt and Associates", title="Frontend Developer"),
+            "b": entry(company="ATT", title="Frontend Developer"),
+            "c": entry(company="Other"),
+        })
+        tracker = self.tmp / "tracker.csv"
+        tracker.write_text(
+            "date,company,role\n"
+            "2026-11-04,Goldschmitt & Associates,Frontend Developer\n"
+            "2026-11-04,AT&T,Frontend Developer\n",
+            encoding="utf-8",
+        )
+        out = self.run_tool("candidates", "--tracker", str(tracker))
+        self.assertEqual([row["key"] for row in out["selected"]], ["c"])
+        self.assertEqual(out["excluded_by_tracker"], 2)
+
     def test_tracker_exclusion_handles_utf8_bom_and_reordered_columns(self):
         self.write_state({"a": entry(company="Acme", title="SOC Analyst"), "b": entry(company="Other")})
         tracker = self.tmp / "tracker.csv"
@@ -309,6 +326,24 @@ class Apply(RankStateCase):
         self.assertEqual(out["ranked"][0]["guard"], stored)
         self.assertEqual(self.read_state()["b"]["guard"], "clean")
         self.assertEqual(out["vetoed"][0]["guard"], "clean")
+
+    def test_apply_persists_ghost_risk(self):
+        # Ghost risk is additive and optional: valid labels are stored upper-cased
+        # with their note, an invalid label is ignored, and a rescore without one
+        # drops the stale value.
+        self.write_state({"a": entry(status="new"), "b": entry(status="new")})
+        out = self.run_tool("apply", "--results", self.results([
+            self._scored(ghost_risk="high", ghost_note="gone from employer site"),
+            self._scored(key="b", ghost_risk="bogus"),
+        ]))
+        state = self.read_state()
+        self.assertEqual(state["a"]["ghost_risk"], "HIGH")
+        self.assertEqual(state["a"]["ghost_note"], "gone from employer site")
+        self.assertNotIn("ghost_risk", state["b"])
+        self.assertEqual(out["ranked"][0]["ghost_risk"] in ("HIGH", None), True)
+        self.write_state({"a": {**self.read_state()["a"], "status": "new"}})
+        self.run_tool("apply", "--results", self.results([self._scored()]))
+        self.assertNotIn("ghost_risk", self.read_state()["a"])
 
     def test_apply_without_guard_key_unchanged(self):
         # An agent on the old prompt returns no `guard`: nothing is written and
