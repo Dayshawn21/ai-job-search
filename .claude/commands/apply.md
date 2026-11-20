@@ -56,7 +56,7 @@ If the posting specifies a city, add `--city "<City>"` to narrow results. Parse 
 
 Before proceeding to drafting, inspect the posting URL's hostname to verify provenance (#431). Classify the host into one of three categories:
 
-1. **Installed portal board:** the host matches any configured job portal in `.agents/skills/` (e.g. `jobindex.dk`, `linkedin.com`, `jobnet.dk`, `jobbank.dk`, `jobdanmark.dk`, `freehire.me`, or any portal added by `/add-portal`).
+1. **Installed portal board:** the host matches any configured job portal in `.agents/skills/` (e.g. `linkedin.com` once `linkedin-search` is installed, or any portal copied from community-portals or added by `/add-portal`).
 2. **Known official ATS apex:** the host matches or is a valid subdomain of one of the six standard ATS domains:
    - `greenhouse.io`
    - `lever.co`
@@ -294,7 +294,7 @@ If the layout has problems, edit the source files (`<CV_EXT>`/`<COVER_EXT>`) and
 - **Orphaned CV entry title:** `\usepackage{needspace}` in preamble, then `\needspace{5\baselineskip}` immediately before the problematic `\cventry`
 - **CV spills to page 3 with only a trailing section:** `\enlargethispage{2-3\baselineskip}` before a late section
 - **Substantial content on page 3:** cut content using **relevance-weighted cutting** (see `05-cv-templates.md` → "Relevance-weighted cutting"). Score each candidate line by (a) relevance to THIS posting's keywords and responsibilities, (b) uniqueness (is it duplicated elsewhere?), (c) narrative load (does the cover letter depend on it?). Cut the lowest-total-score line first, regardless of section. Do NOT mechanically apply a static section-based priority order — an older-role bullet that hits posting keywords is worth more than a recent-role bullet that does not.
-- **Cover letter itemize breaks compile or uses wrong font:** close `\lettercontent{}` before the list, wrap the list in `{\raggedright\fontspec[Path = OpenFonts/fonts/raleway/]{Raleway-Medium}\fontsize{11pt}{13pt}\selectfont \begin{itemize}...\end{itemize}\par}`
+- **Cover letter itemize breaks compile or uses wrong font:** close `\lettercontent{}` before the list, wrap the list in `{\raggedright\fontspec[Path = OpenFonts/fonts/raleway/, BoldFont = Raleway-Bold]{Raleway-Medium}\fontsize{11pt}{13pt}\selectfont \begin{itemize}...\end{itemize}\par}`
 - **Cover letter spills to 2 pages:** trim using the same relevance-weighted logic. First cut: sentences that restate what a bullet already said. Second cut: a bullet that does not hit posting keywords. Last resort: a bullet that does hit posting keywords. Never reduce geometry or line spacing.
 
 Do not proceed to Step 6 until both PDFs pass inspection.
@@ -378,6 +378,10 @@ List the files written:
 - `cover_letters/cover_<company>_<role><COVER_EXT>`
 
 Tell the user: "Both files are ready for your review. Open them to check the final output before compiling."
+
+### Outreach Note (every application)
+
+A person who knows your name beats one more form, so every application also gets a short outreach draft for the user to send to a recruiter or a team member. Write 3-4 sentences, grounded only in the profile and the posting: who he is, one specific fact that matches this role (a real number or project), the honest gap if it is the headline requirement, and a low-pressure ask (a brief chat, or whether the role is still open). Pair it with the Step 4.5 LinkedIn people-search links (recruiter and team peer). Never fabricate a named contact, never claim a person was found, and never send it: he reviews, sends, and logs "contacted" in the tracker. Save it as `documents/applications/<company>_<role>/outreach.txt` and show it in the final output. For a dream target, suggest one small build-before-hire gesture, such as a short demo of a relevant feature from one of your own projects.
 
 ### Step 6b: Record the Application
 

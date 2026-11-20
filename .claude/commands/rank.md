@@ -56,7 +56,7 @@ State how many jobs will be ranked and how many are deferred before proceeding.
 
 Dispatch parallel **`posting-scorer`** agents via the **Agent tool** (`subagent_type: posting-scorer`, the shipped definition in `.claude/agents/posting-scorer.md`: Read, WebFetch, WebSearch and the allowlisted Bash only - no Edit, no Write, because these agents hold untrusted posting text), ~5 jobs per agent (a single agent is fine for ≤5 jobs). Token-efficiency rules, consistent with `/apply`:
 
-- Pass each agent everything it needs **inline in the prompt** - the job list (title, company, URL) and a compact scoring rubric extracted from the files you read in Step 1: the strong/moderate/weak skill match areas, direct/adjacent experience domains, behavioral thrive/drain factors, career goals, deal-breakers, and the location constraints. Do **not** make agents re-read the profile files.
+- Pass each agent everything it needs **inline in the prompt** - the job list (`key`, title, company, URL - the `key` exactly as Step 1's `candidates` output printed it, because the agent must echo it back and cannot derive it: it is a company+title slug from `tools/job_key.py`, not the URL) and a compact scoring rubric extracted from the files you read in Step 1: the strong/moderate/weak skill match areas, direct/adjacent experience domains, behavioral thrive/drain factors, career goals, deal-breakers, and the location constraints. Do **not** make agents re-read the profile files.
 - Agents fetch each posting URL following the escalation order in `.claude/skills/job-application-assistant/09-web-research.md` (using the installed portal CLI's `detail` command when the URL belongs to a portal in `.agents/skills/`, or `WebFetch` otherwise) and score **only from actually fetched content** - never from the title alone, never from fabricated posting content. A job that is not scored gets one of two statuses, and they mean different things:
   - `expired` - **positive evidence the posting is closed**: the page says it is no longer available or the deadline has passed, the server answers 410 Gone, or the URL redirects to a listing page instead of the posting.
   - `unreachable` - **retrieval failed, so nothing is known about the posting**: 401/403 or a login wall, a 404, a timeout, a 5xx, or an empty or unparseable page. The agent adds `"fetch_error"`, one short plain-text line naming the failure (e.g. `"403 after curl retry"`). A 404 is `unreachable`, not `expired`: links break while postings stay live (#538 was one).
@@ -68,7 +68,7 @@ Each agent returns a JSON array, one object per job:
 
 ```json
 {
-  "key": "<the job's key in job_scraper/seen_jobs.json>",
+  "key": "<the key from the orchestrator's job list, echoed back unchanged>",
   "status": "scored" | "expired" | "unreachable",
   "fetch_error": "<one short line, only when unreachable>",
   "scores": { "technical": 0-100, "experience": 0-100, "behavioral": 0-100, "career": 0-100 },
@@ -79,7 +79,9 @@ Each agent returns a JSON array, one object per job:
   "strengths": ["1-3 bullets, grounded in the posting text"],
   "gaps": ["1-3 bullets, honest"],
   "language": "<posting language>",
-  "guard": "clean" | "<posting_guard verdict line, verbatim>"
+  "guard": "clean" | "<posting_guard verdict line, verbatim>",
+  "ghost_risk": "LOW" | "MODERATE" | "HIGH" | "UNKNOWN",
+  "ghost_note": "<one line, required for HIGH>"
 }
 ```
 
@@ -122,6 +124,8 @@ Back in the main context, for each scored job:
    treated exactly like an absent one and reported once in the Step 5 summary with its
    portal.
 
+8. **Ghost-job risk:** each scoring agent also returns `"ghost_risk"` (`LOW`, `MODERATE`, `HIGH` or `UNKNOWN`) and a one-line `"ghost_note"`. The agent checks, from evidence it actually fetched: (a) is the posting still on the employer's own careers page or ATS (a Greenhouse, Lever or Ashby feed hit from `tools/ats_feeds.py` counts as live); (b) the employer's own posting date, not a board's "updated" stamp; (c) talent-pool, "general interest" or evergreen wording; (d) the same vacancy reposted repeatedly. Live on the employer's own site with a recent date is `LOW`; found only on aggregators, or older than 30 days, is `MODERATE`; gone from the employer's own page, evergreen wording, or repeated reposting is `HIGH` (the note says exactly why); no evidence either way is `UNKNOWN`. A `HIGH` job stays in the ranking with a visible 👻 marker and the note, never a veto, and a posting on an employer's own site proves it exists, not that anyone is interviewing. Never state a job has no hiring intent without explicit evidence. Show the label next to the score in Step 5.
+
 Sort by overall score (descending), urgency as tiebreaker.
 
 ---
@@ -136,7 +140,7 @@ python3 tools/rank_state.py apply --results "<path to that temporary file>"
 
 What it writes per entry - all additive to the scraper's schema:
 
-- Ranked jobs: `"status": "ranked"` plus `"rank_score": <overall>`, `"rank_verdict": "<band>"`, `"rank_date": "YYYY-MM-DD"`, `"location_verdict": "PASS"/"FAIL"/"FLAG"` (never the bare `location` key - that is the scraper's place field, e.g. "Aarhus, Denmark", and overwriting it with a verdict destroys the commute-filter data; an entry ranked before this rename may carry a legacy PASS/FAIL/FLAG string in `location`, which the tool reads as the verdict when `location_verdict` is absent and moves to `location_verdict` as it rewrites the entry), `"language_gate": "PASS"/"FAIL"/"FLAG"`, `"language_note"` (dropped when `language_gate` is `PASS`), `"deadline": "YYYY-MM-DD" | null` from the same Step 2 JSON (replacing the stored value when the agent returned a different one - a fresh fetch is the freshest source; left alone when the agent returned `null`, because absence is not a correction - a fetch that degraded to a listing page returns no deadline, and taking that as "the posting dropped its deadline" would erase a real date and, because rule 6 leaves an entry with no stored `deadline` alone, quietly make that job immortal to the sweep), plus `"strengths": [...]` and `"gaps": [...]` copied from the scoring agent's Step 2 JSON for that job. These veto fields are as important to persist as the score itself - without them, nothing later (a re-read of `job_scraper/seen_jobs.json`, a debugging session, the user asking "why was this excluded") can recover why a job did or didn't make the shortlist.
+- Ranked jobs: `"status": "ranked"` plus `"rank_score": <overall>`, `"rank_verdict": "<band>"`, `"rank_date": "YYYY-MM-DD"`, `"location_verdict": "PASS"/"FAIL"/"FLAG"` (never the bare `location` key - that is the scraper's place field, e.g. "Aarhus, Denmark", and overwriting it with a verdict destroys the commute-filter data; an entry ranked before this rename may carry a legacy PASS/FAIL/FLAG string in `location`, which the tool reads as the verdict when `location_verdict` is absent and moves to `location_verdict` as it rewrites the entry), `"language_gate": "PASS"/"FAIL"/"FLAG"`, `"language_note"` (dropped when `language_gate` is `PASS`), `"deadline": "YYYY-MM-DD" | null` from the same Step 2 JSON (replacing the stored value when the agent returned a different one - a fresh fetch is the freshest source; left alone when the agent returned `null`, because absence is not a correction - a fetch that degraded to a listing page returns no deadline, and taking that as "the posting dropped its deadline" would erase a real date and, because rule 6 leaves an entry with no stored `deadline` alone, quietly make that job immortal to the sweep), plus `"strengths": [...]` and `"gaps": [...]` copied from the scoring agent's Step 2 JSON for that job, and `"ghost_risk"` and `"ghost_note"` (Step 3 rule 8) the same way. These veto fields are as important to persist as the score itself - without them, nothing later (a re-read of `job_scraper/seen_jobs.json`, a debugging session, the user asking "why was this excluded") can recover why a job did or didn't make the shortlist.
 - Closed or past-deadline jobs: `"status": "expired"`. Any retry fields from earlier failed fetches are dropped.
 - Jobs whose posting could not be fetched: `"status": "unreachable"` plus `"fetch_attempts": <n>` (incremented on each failed run), `"first_unreachable": "YYYY-MM-DDTHH:MM:SSZ"` (the first failure, UTC) and `"last_fetch_error"` (the agent's `"fetch_error"`, stored as plain text and capped at 200 characters - a short reason, never page text; it is shown in the report, never acted on). These entries are candidates again on the next run. After 3 failed attempts with at least 48 hours between the first and the last, the tool gives up: `"status": "expired"` with `"expired_reason": "unreachable"`, keeping the three retry fields as the entry's history. The 48-hour floor matters because a scheduled run plus a manual one on the same day would otherwise burn every attempt on one short outage. A later successful fetch (including via `--all`) drops all four fields. The set of statuses an agent may return is owned by `tools/rank_state.py` (`AGENT_STATUSES`); `apply` rejects any other value as an error rather than scoring it.
 - Entries retired by Step 3's rule 6 sweep: `"status": "expired"` for those too, written by `sweep --write`, with every other field on them untouched. The sweep reasons over entries this run never scored, so without its own write its conclusion would live only in the report and the same expiry would be re-derived from the same stored date on every future run.
@@ -166,8 +170,10 @@ Swept <S> previously ranked entries (<E> newly expired, <C> closing soon).
 | 1 | 78 | Strong Fit | ... | ... | ... | ... | 🔥 | [Link](...) |
 
 ### Why these ranked highest
-**1. <Title> at <Company> (78)** - [2-3 strength bullets and the honest gap, from the agent's findings]
+**1. <Title> at <Company> (78)**[ · <employment type>] - [2-3 strength bullets and the honest gap, from the agent's findings]
 [repeat for each shortlisted job]
+
+**Employment type:** show a shortlisted entry's stored `employment_type` (`full_time`, `part_time`, `contract`, `freelance`) after the score in its "Why these ranked highest" line, as above. The ` · <employment type>` part is bracketed because it is optional: leave out the whole bracket, separator included, when the value is `null` or the key is missing, so no dangling `·` is left behind. If the profile or `CLAUDE.md` states what kind of engagement the user wants (for example "contract only" under career goals) and the stored type differs, add a visible ⚠ marker naming both (e.g. "⚠ full_time, profile prefers contract"). Same treatment as a location or language FLAG: a signal for the user to judge, never a veto, and no score change. A `null` or absent type gets no marker and no guess; this costs no fetch because `/scrape` already stored the value.
 
 ### Closing soon
 | Deadline | Title | Company | URL |

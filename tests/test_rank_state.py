@@ -108,6 +108,23 @@ class Candidates(RankStateCase):
         self.assertEqual([row["key"] for row in out["selected"]], ["b"])
         self.assertEqual(out["excluded_by_tracker"], 1)
 
+    def test_tracker_ampersand_matches_and_but_not_inside_a_token(self):
+        self.write_state({
+            "a": entry(company="Goldschmitt and Associates", title="Frontend Developer"),
+            "b": entry(company="ATT", title="Frontend Developer"),
+            "c": entry(company="Other"),
+        })
+        tracker = self.tmp / "tracker.csv"
+        tracker.write_text(
+            "date,company,role\n"
+            "2026-11-04,Goldschmitt & Associates,Frontend Developer\n"
+            "2026-11-04,AT&T,Frontend Developer\n",
+            encoding="utf-8",
+        )
+        out = self.run_tool("candidates", "--tracker", str(tracker))
+        self.assertEqual([row["key"] for row in out["selected"]], ["c"])
+        self.assertEqual(out["excluded_by_tracker"], 2)
+
     def test_tracker_exclusion_handles_utf8_bom_and_reordered_columns(self):
         self.write_state({"a": entry(company="Acme", title="SOC Analyst"), "b": entry(company="Other")})
         tracker = self.tmp / "tracker.csv"
@@ -309,6 +326,24 @@ class Apply(RankStateCase):
         self.assertEqual(out["ranked"][0]["guard"], stored)
         self.assertEqual(self.read_state()["b"]["guard"], "clean")
         self.assertEqual(out["vetoed"][0]["guard"], "clean")
+
+    def test_apply_persists_ghost_risk(self):
+        # Ghost risk is additive and optional: valid labels are stored upper-cased
+        # with their note, an invalid label is ignored, and a rescore without one
+        # drops the stale value.
+        self.write_state({"a": entry(status="new"), "b": entry(status="new")})
+        out = self.run_tool("apply", "--results", self.results([
+            self._scored(ghost_risk="high", ghost_note="gone from employer site"),
+            self._scored(key="b", ghost_risk="bogus"),
+        ]))
+        state = self.read_state()
+        self.assertEqual(state["a"]["ghost_risk"], "HIGH")
+        self.assertEqual(state["a"]["ghost_note"], "gone from employer site")
+        self.assertNotIn("ghost_risk", state["b"])
+        self.assertEqual(out["ranked"][0]["ghost_risk"] in ("HIGH", None), True)
+        self.write_state({"a": {**self.read_state()["a"], "status": "new"}})
+        self.run_tool("apply", "--results", self.results([self._scored()]))
+        self.assertNotIn("ghost_risk", self.read_state()["a"])
 
     def test_apply_without_guard_key_unchanged(self):
         # An agent on the old prompt returns no `guard`: nothing is written and
@@ -869,6 +904,44 @@ class Unreachable(RankStateCase):
                 self.assertEqual(out["ranked"], [], "a deal-breaker spelled differently must not reach the shortlist")
                 self.assertIn(f"unknown {field} {value!r}", out["errors"][0]["error"])
                 self.assertEqual(self.read_state()["a"]["status"], "new", "a rejected result never half-writes an entry")
+
+    def test_non_object_entry_is_reported_not_a_traceback(self):
+        """`candidates` and `sweep` read every entry, so either crashed on a non-object
+        one. `apply` only touches the keys its results name, so on master a result
+        naming the bad entry crashed and a result naming only a valid entry exited 0
+        and wrote it. `load_state` now refuses the file for all three, naming the key."""
+        self.write_state({"a": entry(), "b": "oops"})
+        def results_file(name, payload):
+            path = self.tmp / name
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            return str(path)
+
+        naming_bad = results_file("naming_bad.json", [{"key": "b", "status": "unreachable"}])
+        naming_good = results_file(
+            "naming_good.json",
+            [{"key": "a", "status": "scored",
+              "scores": {"technical": 80, "experience": 80, "behavioral": 80, "career": 80}}],
+        )
+        for args in (
+            ("candidates", "--tracker", str(self.tmp / "none.csv")),
+            ("sweep",),
+            ("apply", "--results", naming_bad),
+            ("apply", "--results", naming_good),
+        ):
+            with self.subTest(command=args[0], results=args[-1]):
+                proc = subprocess.run(
+                    [sys.executable, str(TOOL), *args, "--state", str(self.state), "--today", TODAY],
+                    capture_output=True, text=True, encoding="utf-8",
+                )
+                self.assertEqual(proc.returncode, 1)
+                self.assertIn("entry is not an object: b", proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+        stored = json.loads(self.state.read_text(encoding="utf-8"))
+        self.assertEqual(
+            stored.get("seen", stored),
+            {"a": entry(), "b": "oops"},
+            "a refused file is never half-written",
+        )
 
 
 if __name__ == "__main__":
